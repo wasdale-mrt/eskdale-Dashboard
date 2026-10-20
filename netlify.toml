@@ -1,0 +1,6 @@
+# Netlify settings for Eskdale Conditions
+[build]
+  publish = "."
+
+[functions]
+  directory = "netlify/functions"
