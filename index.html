@@ -385,7 +385,10 @@ async function loadRiver(){
   let scale={};
   try{scale=(await getJSON(https(st.stageScale||`${EA}/id/stations/${ref}/stageScale`))).items||{};}catch(e){}
   const since=new Date(Date.now()-5*864e5).toISOString().slice(0,19)+"Z";
-  const rd=(await getJSON(`${EA}/id/stations/${ref}/readings?parameter=level&_sorted&_limit=1000&since=${since}`)).items||[];
+  // The EA readings service can take 10-20 seconds to answer, so give it longer and try twice.
+  const rurl=`${EA}/id/stations/${ref}/readings?parameter=level&_sorted&_limit=1000&since=${since}`;
+  let rj; try{ rj=await getJSON(rurl,45000); }catch(e){ rj=await getJSON(rurl,45000); }
+  const rd=rj.items||[];
   const readings=rd.filter(i=>typeof i.value==="number").map(i=>({t:new Date(i.dateTime),v:i.value})).sort((a,b)=>a.t-b.t);
   if(!readings.length) throw new Error("no readings");
   const base=SNAP?SNAP.station:{};
