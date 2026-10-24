@@ -84,7 +84,13 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--water);outline-offs
 .warnings ul{margin:4px 0 0;padding-left:18px}
 .warnings>div{min-width:0}
 .warnings li.more{list-style:none;margin-left:-18px;color:var(--ink-2);font-size:.9em}
-.warnings .one{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.warnings .one{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.warnings .one .n{font-family:var(--mono);font-size:.85em;color:var(--ink-2)}
+.warnings{position:relative}
+.flood-pop{position:absolute;z-index:5;left:-1px;right:-1px;top:100%;margin-top:4px;padding:8px 14px 10px;border:1px solid var(--alert);border-radius:var(--r);background:var(--panel);box-shadow:0 8px 24px rgba(0,0,0,.35);max-height:70vh;overflow:auto}
+.flood-pop[hidden]{display:none}
+.flood-btn{font:inherit;font-weight:600;color:var(--water);background:none;border:0;padding:2px 0;cursor:pointer}
+.warnings li.more a{color:var(--ink-2)}
 
 /* River */
 .river-now{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:8px}
@@ -510,6 +516,7 @@ function renderSun(){
   $("sun").innerHTML=`<span>Sunrise <b>${hhmm(v.daily.sunrise[i])}</b></span><span>Sunset <b>${hhmm(v.daily.sunset[i])}</b></span>`;
 }
 
+let floodList=[], floodIdx=0, floodOpen=false;
 function renderFloods(){
   const f=S.floods, el=$("warnings"); if(!f) return;
   if(f.src==="error"){el.className="warnings";el.innerHTML=`<span class="dot" style="background:var(--warn)"></span><div><b>Flood warnings</b> <span class="sub">Could not reach the Environment Agency. Check gov.uk/check-flooding.</span></div>`;return;}
@@ -519,16 +526,35 @@ function renderFloods(){
   // Most serious first (severityLevel 1 = severe, 2 = warning, 3 = alert), then anything on the Esk.
   const esk=x=>/\besk\b|eskdale/i.test(x.desc||"")?0:1;
   const sorted=items.slice().sort((a,b)=>(a.lvl||9)-(b.lvl||9)||esk(a)-esk(b));
-  // On the reception TV keep the banner short so it doesn't squash the river chart below it.
   const kind=`${items.length} flood ${items.length>1?"warnings/alerts":"warning/alert"} in force`;
+  const li=x=>`<li>${esc(x.sev||"")}: ${esc(x.desc||"")}</li>`;
+  const src=`<li class="more">Details: <a href="https://check-for-flooding.service.gov.uk/" target="_blank" rel="noopener">gov.uk/check-flooding</a></li>`;
+  floodList=sorted;
   if(root.classList.contains("screen")){
-    const top=sorted[0];
-    el.innerHTML=`<span class="dot"></span><div class="one"><b>${kind}</b> <span>· ${esc(top.sev||"")}: ${esc(top.desc||"")}</span></div>`;
+    // Reception TV: one line so the river chart keeps its space, stepping through every item in turn.
+    // On a big monitor it can be clicked to open the full list.
+    floodIdx%=sorted.length;
+    el.innerHTML=`<span class="dot"></span><div class="one" role="button" tabindex="0" title="Show all"><b>${kind}</b> <span id="flood-tick"></span></div>`
+      +`<div class="flood-pop"${floodOpen?"":" hidden"}><ul>${sorted.map(li).join("")}${src}</ul></div>`;
+    const one=el.querySelector(".one"), tog=()=>{floodOpen=!floodOpen;el.querySelector(".flood-pop").hidden=!floodOpen;};
+    one.onclick=tog; one.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();tog();}};
+    floodTick();
     return;
   }
-  const max=4, more=sorted.length-max;
-  el.innerHTML=`<span class="dot"></span><div><b>${kind}</b><ul>${sorted.slice(0,max).map(x=>`<li>${esc(x.sev||"")}: ${esc(x.desc||"")}</li>`).join("")}${more>0?`<li class="more">+${more} more. See gov.uk/check-flooding</li>`:""}</ul></div>`;
+  // Phones show everything (the page scrolls); laptops show the top four with a button for the rest.
+  const phone=window.innerWidth<780, max=phone||floodOpen?sorted.length:4, more=sorted.length-max;
+  el.innerHTML=`<span class="dot"></span><div><b>${kind}</b><ul>${sorted.slice(0,max).map(li).join("")}`
+    +(more>0?`<li class="more"><button type="button" class="flood-btn">Show all ${sorted.length}</button></li>`
+      :(!phone&&sorted.length>4?`<li class="more"><button type="button" class="flood-btn">Show fewer</button></li>`:""))
+    +`${src}</ul></div>`;
+  const btn=el.querySelector(".flood-btn"); if(btn) btn.onclick=()=>{floodOpen=!floodOpen;renderFloods();};
 }
+function floodTick(){
+  const t=$("flood-tick"); if(!t||!floodList.length) return;
+  const x=floodList[floodIdx%floodList.length], n=floodList.length;
+  t.innerHTML=`· ${n>1?`<span class="n">${floodIdx%n+1}/${n}</span> `:""}${esc(x.sev||"")}: ${esc(x.desc||"")}`;
+}
+setInterval(()=>{if(floodList.length>1&&$("flood-tick")){floodIdx=(floodIdx+1)%floodList.length;floodTick();}},6000);
 
 function riverState(v,st){
   if(st.typicalHigh!=null&&v>st.typicalHigh) return st.highestRecent&&v>=st.highestRecent.value?["alert","Very high"]:["alert","High"];
