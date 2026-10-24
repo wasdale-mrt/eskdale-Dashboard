@@ -158,6 +158,19 @@ table.hrs{width:100%;border-collapse:collapse;font-size:.88rem;font-variant-nume
 html.screen .tide-next b{font-size:1.4rem}
 html.screen .tide-ev .tm{font-size:1.15rem}
 
+/* Predicted river level */
+.pred-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.pred-head b{font-family:var(--display);font-size:1.6rem;font-weight:700;line-height:1}
+.pred-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:8px}
+.pred-facts div{background:var(--panel-2);border-radius:8px;padding:6px 8px;min-width:0;font-size:.74rem;color:var(--ink-3);text-transform:uppercase;letter-spacing:.07em}
+.pred-facts b{display:block;font-family:var(--display);font-size:1.2rem;font-weight:600;color:var(--ink);text-transform:none;letter-spacing:.01em;line-height:1.1}
+.pred-facts i{display:block;font-style:normal;text-transform:none;letter-spacing:0;font-size:.8rem;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.powered{margin-top:8px}
+.powered a{color:var(--ink-2)}
+html.screen .pred-head b{font-size:1.4rem}
+html.screen .pred-facts b{font-size:1.1rem}
+html.screen .powered a{color:var(--ink-3);text-decoration:none}
+
 footer{margin-top:18px;color:var(--ink-3);font-size:.78rem;display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
 footer a{color:var(--ink-2)}
 .only-screen{display:none}
@@ -234,15 +247,14 @@ html.screen #summit .tbl-wrap{flex:1;min-height:0;overflow:hidden}
     </article>
 
     <article class="panel" id="predict">
-      <div class="ph"><h2>Predicted river level</h2><span class="tag">Not connected</span></div>
-      <div class="pending">
-        <div class="ico" aria-hidden="true">≈</div>
-        <div>
-          <p>RiverPredictor forecasts the Esk from Brotherilkeld to Forge Bridge. It will appear here once its creator agrees to the centre using it.</p>
-          <a class="only-phone" href="https://riverpredictor.uk/esk_lakes_brotherikeld_forge_bridge" target="_blank" rel="noopener">Open RiverPredictor</a>
-          <span class="only-screen mono sub">riverpredictor.uk</span>
+      <div class="ph"><h2>Predicted river level</h2><span class="upd" id="predict-upd"></span></div>
+      <div id="predict-body">
+        <div class="pending">
+          <div class="ico" aria-hidden="true">≈</div>
+          <div><p>Loading the RiverPredictor forecast…</p></div>
         </div>
       </div>
+      <p class="note powered">Esk, Brotherilkeld to Forge Bridge · Powered by <a href="https://riverpredictor.uk/esk_lakes_brotherikeld_forge_bridge" target="_blank" rel="noopener">RiverPredictor</a><span class="only-screen"> (riverpredictor.uk)</span></p>
     </article>
   </section>
 
@@ -288,7 +300,7 @@ html.screen #summit .tbl-wrap{flex:1;min-height:0;overflow:hidden}
 
 <footer>
   <span>A briefing aid. Always check official forecasts and warnings and follow centre procedures.</span>
-  <span>River data: Environment Agency, Open Government Licence. Tides: UK Hydrographic Office, ADMIRALTY UK Tidal API. <a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a></span>
+  <span>River data: Environment Agency, Open Government Licence. Tides: UK Hydrographic Office, ADMIRALTY UK Tidal API. Predicted river level: <a href="https://riverpredictor.uk/" target="_blank" rel="noopener">RiverPredictor</a>. <a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a></span>
 </footer>
 
 <script>
@@ -355,7 +367,7 @@ function wx(code){
 const icon=(code,cls="wx")=>{const [k,l]=wx(code);return `<svg class="${cls}" role="img" aria-label="${l}"><use href="#i-${k}"/></svg>`;};
 
 /* ---------- state ---------- */
-const S={river:null,floods:null,valley:null,summit:null,tides:null};
+const S={river:null,floods:null,valley:null,summit:null,tides:null,predict:null};
 const TIDES_URL="/api/tides";
 const SNAP=window.__SNAPSHOT__||null;
 
@@ -428,16 +440,34 @@ async function loadTides(){
   return {src:"live",at:new Date(),fetchedAt:new Date(j.fetchedAt||Date.now()),station:j.station,events};
 }
 
+const PREDICT_URL="/api/riverpredictor";
+async function loadPredict(){
+  if(location.protocol==="file:"||SNAP) return {src:"offline",at:new Date()};
+  let r;
+  try{
+    const ctl=new AbortController();const to=setTimeout(()=>ctl.abort(),20000);
+    r=await fetch(PREDICT_URL,{signal:ctl.signal}); clearTimeout(to);
+  }catch(e){ throw new Error("network"); }
+  const ct=r.headers.get("content-type")||"";
+  if(!ct.includes("json")) return {src:"nofunction",at:new Date()};
+  const j=await r.json();
+  if(j.error) return {src:"error",at:new Date(),code:j.error,detail:j.detail};
+  const pts=a=>(a||[]).map(([t,v,rain])=>({t:new Date(t),v,rain})).filter(p=>!isNaN(p.t)&&typeof p.v==="number").sort((a,b)=>a.t-b.t);
+  const obs=pts(j.observed), fc=pts(j.forecast);
+  if(!obs.length&&!fc.length) return {src:"error",at:new Date(),code:"empty"};
+  return {src:"live",at:new Date(),fetchedAt:new Date(j.fetchedAt||Date.now()),cal:j.calibrations||{},obs,fc};
+}
+
 async function loadAll(){
   const tasks={
-    river:loadRiver(), floods:loadFloods(), valley:loadWx(VALLEY), summit:loadWx(SUMMIT), tides:loadTides()
+    river:loadRiver(), floods:loadFloods(), valley:loadWx(VALLEY), summit:loadWx(SUMMIT), tides:loadTides(), predict:loadPredict()
   };
   const keys=Object.keys(tasks);
   const res=await Promise.allSettled(Object.values(tasks));
   res.forEach((r,i)=>{
     const k=keys[i];
     if(r.status==="fulfilled") S[k]=r.value;
-    else if(k==="tides"){ if(!S.tides||S.tides.src!=="live") S.tides={src:"error",at:new Date(),code:"network"}; }
+    else if(k==="tides"||k==="predict"){ if(!S[k]||S[k].src!=="live") S[k]={src:"error",at:new Date(),code:"network"}; }
     else if(!S[k]||S[k].src!=="live"){
       if(SNAP){
         if(k==="river") S[k]=snapRiver();
@@ -682,17 +712,108 @@ function drawTideChart(ev,now){
   svg.innerHTML=g;
 }
 
+function predictPending(msg){
+  return `<div class="pending"><div class="ico" aria-hidden="true">≈</div><div><p>${msg}</p><a class="only-phone" href="https://riverpredictor.uk/esk_lakes_brotherikeld_forge_bridge" target="_blank" rel="noopener">Open RiverPredictor</a></div></div>`;
+}
+function renderPredict(){
+  const P=S.predict, body=$("predict-body"), upd=$("predict-upd"); if(!P) return;
+  upd.textContent=""; upd.classList.remove("stale");
+  if(P.src!=="live"){
+    const msgs={
+      offline:"The river forecast appears here when the dashboard is running online.",
+      nofunction:"The RiverPredictor service isn't running on this site yet.",
+      upstream:"RiverPredictor isn't responding right now.",
+      empty:"No forecast came back from RiverPredictor.",
+      network:"Couldn't reach the RiverPredictor service."
+    };
+    body.innerHTML=predictPending(msgs[P.code]||msgs[P.src]||msgs.network);
+    return;
+  }
+  const now=new Date(), obs=P.obs, fc=P.fc;
+  const lastObs=obs[obs.length-1]||null;
+  const ahead=fc.filter(p=>p.t>now);
+  if(!ahead.length){body.innerHTML=predictPending("The forecast has run out. It will refresh shortly.");return;}
+  const cur=lastObs?lastObs.v:ahead[0].v;
+  const peak=ahead.reduce((a,b)=>b.v>a.v?b:a), low=ahead.reduce((a,b)=>b.v<a.v?b:a), end=ahead[ahead.length-1];
+  const when=t=>`${localHourKey(t).slice(0,10)!==localHourKey(now).slice(0,10)?dayName(localHourKey(t))+" ":""}${fTime.format(t)}`;
+  const hrsAhead=Math.round((end.t-now)/3600e3);
+  let head, sub;
+  if(peak.v-cur>0.05){head="Rising";sub=`to about ${peak.v.toFixed(2)} m around ${when(peak.t)}`;}
+  else if(cur-low.v>0.05){head="Falling";sub=`to about ${low.v.toFixed(2)} m by ${when(low.t)}`;}
+  else {head="Steady";sub=`around ${cur.toFixed(2)} m for the next ${hrsAhead} hours`;}
+  const rain=ahead.reduce((a,p)=>a+(p.rain||0),0);
+  const age=lastObs?(now-lastObs.t)/3600e3:null;
+  upd.textContent=lastObs&&age>3?`No new reading since ${when(lastObs.t)}`:`Forecast to ${when(end.t)}`;
+  upd.classList.toggle("stale",!!(lastObs&&age>3));
+  body.innerHTML=`
+    <div class="pred-head"><b>${head}</b><span class="sub">${sub}</span></div>
+    <div class="chart-box"><svg class="chart" id="predict-chart" viewBox="0 0 520 130" preserveAspectRatio="none" role="img" aria-label="River level over the last day and RiverPredictor's forecast"></svg></div>
+    <div class="pred-facts">
+      <div><b>${lastObs?lastObs.v.toFixed(2)+" m":"–"}</b>Now<i>${lastObs?fTime.format(lastObs.t):""}</i></div>
+      <div><b>${peak.v.toFixed(2)} m</b>Peak<i>${when(peak.t)}</i></div>
+      <div><b>${rain.toFixed(rain<10?1:0)} mm</b>Rain<i>next ${hrsAhead} h</i></div>
+    </div>`;
+  drawPredictChart(P,now);
+}
+function drawPredictChart(P,now){
+  const svg=$("predict-chart"); if(!svg) return;
+  const box=svg.getBoundingClientRect(), screen=root.classList.contains("screen");
+  const W=Math.max(300,Math.round(box.width||520)), Hh=screen?Math.round(Math.max(70,innerHeight*0.1)):130;
+  svg.setAttribute("viewBox",`0 0 ${W} ${Hh}`); svg.style.height=Hh+"px";
+  const L=34,Rr=8,T=8,B=16,w=W-L-Rr,h=Hh-T-B;
+  const t0=now.getTime()-24*3600e3;
+  const obs=P.obs.filter(p=>p.t>=t0), fc=P.fc.filter(p=>p.t>=(obs.length?obs[obs.length-1].t:now));
+  const all=obs.concat(fc); if(all.length<2){svg.innerHTML="";return;}
+  const t1=Math.max(...all.map(p=>p.t.getTime()));
+  const vs=all.map(p=>p.v);
+  let lo=Math.max(0,Math.floor((Math.min(...vs)-0.1)*10)/10), hi=Math.ceil((Math.max(...vs)+0.15)*10)/10;
+  const cal=P.cal||{};
+  if(cal.low!=null&&cal.low>hi&&cal.low-hi<0.4) hi=Math.ceil((cal.low+0.05)*10)/10;
+  const x=t=>L+(t-t0)/(t1-t0)*w, y=v=>T+h-(v-lo)/((hi-lo)||1)*h;
+  let g="";
+  const step=(hi-lo)>1.2?0.5:(hi-lo)>0.5?0.2:0.1;
+  for(let v=Math.ceil(lo/step-1e-9)*step;v<=hi+1e-9;v+=step){g+=`<line x1="${L}" x2="${W-Rr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L-5}" y="${y(v)+3}" text-anchor="end">${v.toFixed(step<0.5?1:1)}</text>`;}
+  // hourly rain, hanging from the top of the chart
+  const rainPts=all.filter(p=>p.rain!=null&&p.rain>0);
+  const rMax=Math.max(4,...rainPts.map(p=>p.rain)), bw=Math.max(2,w/((t1-t0)/3600e3)*0.5);
+  rainPts.forEach(p=>{const bh=p.rain/rMax*h*0.4;g+=`<rect x="${x(p.t.getTime())-bw/2}" y="${T}" width="${bw}" height="${bh}" rx="1" fill="var(--water)" fill-opacity=".25"/>`;});
+  // RiverPredictor's own level bands
+  [["low","Low"],["medium","Medium"],["high","High"],["huge","Huge"]].forEach(([k,lbl])=>{
+    const v=cal[k]; if(v==null||v<lo||v>hi) return;
+    g+=`<line x1="${L}" x2="${W-Rr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--ink-3)" stroke-dasharray="3 4"/><text x="${L+4}" y="${y(v)-3}">${lbl} ${v.toFixed(2)}</text>`;
+  });
+  // time labels: as many as fit (about one per 60px), day names at midnight
+  const spanH=(t1-t0)/3600e3, every=[3,6,12,24].find(s=>spanH/s<=w/60)||24;
+  for(let t=t0-(t0%3600e3);t<=t1;t+=3600e3){
+    const k=localHourKey(new Date(t)), hr=+k.slice(11,13); if(hr%every) continue;
+    const X=x(t); if(X<L+12||X>W-Rr-12) continue;
+    if(hr===0) g+=`<line x1="${X}" x2="${X}" y1="${T}" y2="${T+h}" stroke="var(--line)"/>`;
+    g+=`<text x="${X}" y="${Hh-4}" text-anchor="middle">${hr===0?dayName(k):k.slice(11,16)}</text>`;
+  }
+  const line=a=>a.map(p=>`${x(p.t.getTime()).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
+  if(obs.length>1){
+    g+=`<polygon points="${x(obs[0].t.getTime())},${T+h} ${line(obs)} ${x(obs[obs.length-1].t.getTime())},${T+h}" fill="var(--water-soft)"/>`;
+    g+=`<polyline points="${line(obs)}" fill="none" stroke="var(--water)" stroke-width="2.2" stroke-linejoin="round"/>`;
+  }
+  const fcLine=obs.length?[obs[obs.length-1]].concat(fc.filter(p=>p.t>obs[obs.length-1].t)):fc;
+  if(fcLine.length>1) g+=`<polyline points="${line(fcLine)}" fill="none" stroke="var(--water)" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>`;
+  const nx=x(now.getTime());
+  g+=`<line x1="${nx}" x2="${nx}" y1="${T}" y2="${T+h}" stroke="var(--bracken)" stroke-width="1.5"/><text x="${nx+4}" y="${T+h-4}" style="fill:var(--bracken)">now</text>`;
+  g+=`<text x="${W-Rr-2}" y="${T+h-4}" text-anchor="end">forecast ┄</text>`;
+  svg.innerHTML=g;
+}
+
 function fitSummit(){
   if(!root.classList.contains("screen")) return;
   const t=$("summit-hrs"), tb=t.tBodies[0]; if(!tb) return;
   const wrap=t.parentElement;
   while(tb.rows.length>2&&wrap.scrollHeight>wrap.clientHeight+1) tb.deleteRow(-1);
 }
-function renderAll(){renderStatus();renderSun();renderFloods();renderRiver();renderValley();renderSummit();renderTides();requestAnimationFrame(fitSummit);}
+function renderAll(){renderStatus();renderSun();renderFloods();renderRiver();renderValley();renderSummit();renderTides();renderPredict();requestAnimationFrame(fitSummit);}
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{renderAll();});
 
 /* ---------- run ---------- */
-renderClock(); setInterval(renderClock,15e3); setInterval(renderTides,60e3);
+renderClock(); setInterval(renderClock,15e3); setInterval(()=>{renderTides();renderPredict();},60e3);
 loadAll(); setInterval(loadAll,REFRESH_MIN*60e3);
 
 // keep the reception screen awake and pick up new versions twice a day
