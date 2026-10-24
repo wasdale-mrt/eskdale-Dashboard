@@ -82,6 +82,9 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--water);outline-offs
 .warnings.on{border-color:var(--alert);background:color-mix(in srgb,var(--alert) 14%,var(--panel))}
 .warnings.on .dot{background:var(--alert)}
 .warnings ul{margin:4px 0 0;padding-left:18px}
+.warnings>div{min-width:0}
+.warnings li.more{list-style:none;margin-left:-18px;color:var(--ink-2);font-size:.9em}
+.warnings .one{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* River */
 .river-now{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:8px}
@@ -185,6 +188,8 @@ html.screen .col{min-height:0;gap:1rem}
 html.screen .panel{padding:1rem 1.15rem}
 html.screen .panel.grow{flex:1;min-height:0;display:flex;flex-direction:column}
 html.screen .grow .chart-box{flex:1;min-height:0}
+html.screen #river .facts{margin-top:6px;font-size:.76rem;gap:4px 12px}
+html.screen #river .facts b{font-size:1.05rem}
 html.screen .grow .chart-box svg{height:100%;width:100%}
 html.screen .big{font-size:5.6rem}
 html.screen .top{margin-bottom:1rem}
@@ -511,7 +516,18 @@ function renderFloods(){
   const items=f.items||[];
   if(!items.length){el.className="warnings";el.innerHTML=`<span class="dot"></span><div><b>No flood warnings or alerts</b> <span class="sub">within 20 km of the centre</span></div>`;return;}
   el.className="warnings on";
-  el.innerHTML=`<span class="dot"></span><div><b>${items.length} flood ${items.length>1?"warnings/alerts":"warning/alert"} in force</b><ul>${items.slice(0,4).map(x=>`<li>${esc(x.sev||"")}: ${esc(x.desc||"")}</li>`).join("")}</ul></div>`;
+  // Most serious first (severityLevel 1 = severe, 2 = warning, 3 = alert), then anything on the Esk.
+  const esk=x=>/\besk\b|eskdale/i.test(x.desc||"")?0:1;
+  const sorted=items.slice().sort((a,b)=>(a.lvl||9)-(b.lvl||9)||esk(a)-esk(b));
+  // On the reception TV keep the banner short so it doesn't squash the river chart below it.
+  const kind=`${items.length} flood ${items.length>1?"warnings/alerts":"warning/alert"} in force`;
+  if(root.classList.contains("screen")){
+    const top=sorted[0];
+    el.innerHTML=`<span class="dot"></span><div class="one"><b>${kind}</b> <span>· ${esc(top.sev||"")}: ${esc(top.desc||"")}</span></div>`;
+    return;
+  }
+  const max=4, more=sorted.length-max;
+  el.innerHTML=`<span class="dot"></span><div><b>${kind}</b><ul>${sorted.slice(0,max).map(x=>`<li>${esc(x.sev||"")}: ${esc(x.desc||"")}</li>`).join("")}${more>0?`<li class="more">+${more} more. See gov.uk/check-flooding</li>`:""}</ul></div>`;
 }
 
 function riverState(v,st){
@@ -557,11 +573,17 @@ function renderRiver(){
     <div><b>${fmtRec(st.maxOnRecord)}</b>Highest on record, ${recDate(st.maxOnRecord)}</div>`;
 }
 
+// Other panels in the column can change height after the river is drawn (e.g. the forecast
+// arriving, or a flood banner), so redraw the river chart whenever its box changes size.
+let riverArgs=null, riverH=0;
+if(window.ResizeObserver) new ResizeObserver(es=>{const h=Math.round(es[0].contentRect.height);
+  if(riverArgs&&Math.abs(h-riverH)>2) drawRiverChart(...riverArgs);}).observe($("river-chart").parentNode);
 function drawRiverChart(rs,st,top){
+  riverArgs=[rs,st,top];
   const svg=$("river-chart");
   const box=svg.getBoundingClientRect();
-  const W=Math.max(320,Math.round(box.width||520)), Hh=Math.max(140,Math.round(root.classList.contains("screen")&&box.height?box.height:180));
-  svg.setAttribute("viewBox",`0 0 ${W} ${Hh}`);
+  const W=Math.max(320,Math.round(box.width||520)), Hh=root.classList.contains("screen")&&box.height?Math.max(70,Math.round(box.height)):180;
+  svg.setAttribute("viewBox",`0 0 ${W} ${Hh}`); riverH=Math.round(box.height);
   const L=34,Rr=8,T=8,B=20, w=W-L-Rr, h=Hh-T-B;
   const t0=rs[0].t.getTime(), t1=rs[rs.length-1].t.getTime();
   const x=t=>L+(t-t0)/(t1-t0||1)*w, y=v=>T+h-(v/top)*h;
