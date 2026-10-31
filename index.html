@@ -98,8 +98,8 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--water);outline-offs
 .pick select:focus-visible{outline:2px solid var(--water);outline-offset:2px;border-radius:4px}
 .pick option{background:var(--panel);color:var(--ink)}
 .pick .caret{position:absolute;right:0;pointer-events:none;color:var(--ink-2);font-size:.8em}
-html.screen .pick .caret{display:none}
-html.screen .pick select{pointer-events:none;padding-right:0}
+html.tv .pick .caret{display:none}
+html.tv .pick select{pointer-events:none;padding-right:0}
 .esk-only{color:var(--warn);margin:-2px 0 6px}
 .river-now{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:8px}
 .big{font-family:var(--display);font-weight:700;font-size:4.2rem;line-height:.85;color:var(--water)}
@@ -348,6 +348,7 @@ const wantScreen=qs.has("screen")||location.hash==="#screen";
 function decideScreen(){
   const big=window.innerWidth>=1600&&window.innerHeight>=800&&window.innerWidth>window.innerHeight;
   root.classList.toggle("screen",wantScreen||big);
+  root.classList.toggle("tv",wantScreen);   // the real reception TV address: drop-down switched off
 }
 decideScreen();
 if(wantScreen) root.setAttribute("data-theme","dark");
