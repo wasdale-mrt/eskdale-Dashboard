@@ -685,7 +685,7 @@ function renderSummit(){
   $("summit-hrs").innerHTML=`<thead><tr><th>Time</th><th></th><th>Temp</th><th>Feels</th><th>Wind mph</th><th>Cloud</th></tr></thead><tbody>${rows.map(i=>{
     const t=hr.time[i], day=t.slice(0,10)!==hr.time[i0].slice(0,10)?dayName(t)+" ":"";
     const fl=hr.apparent_temperature[i];
-    return `<tr><td class="mono">${day}${hhmm(t)}</td><td>${icon(hr.weather_code[i])}</td><td>${r0(hr.temperature_2m[i])}°</td><td class="${fl<=0?"cold":""}">${r0(fl)}°</td><td>${arrow(hr.wind_direction_10m[i])}${compass(hr.wind_direction_10m[i])} ${r0(hr.wind_speed_10m[i])} <span class="sub">g${r0(hr.wind_gusts_10m[i])}</span></td><td>${r0(hr.cloud_cover_low[i])}%</td></tr>`;}).join("")}</tbody>`;
+    return `<tr><td class="mono">${day}${hhmm(t)}</td><td>${icon(hr.weather_code[i])}</td><td>${r0(hr.temperature_2m[i])}°</td><td class="${fl<=0?"cold":""}">${r0(fl)}°</td><td>${arrow(hr.wind_direction_10m[i])}${compass(hr.wind_direction_10m[i])} ${r0(hr.wind_speed_10m[i])}<span class="sub">, gusts ${r0(hr.wind_gusts_10m[i])}</span></td><td>${r0(hr.cloud_cover_low[i])}%</td></tr>`;}).join("")}</tbody>`;
 }
 
 function tideHeightAt(ev,t){
