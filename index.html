@@ -93,6 +93,14 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--water);outline-offs
 .warnings li.more a{color:var(--ink-2)}
 
 /* River */
+.pick{position:relative;display:inline-flex;align-items:center;min-width:0}
+.pick select{font:inherit;color:inherit;letter-spacing:inherit;background:transparent;border:0;padding:0 18px 0 0;margin:0;appearance:none;-webkit-appearance:none;cursor:pointer;max-width:100%;text-overflow:ellipsis}
+.pick select:focus-visible{outline:2px solid var(--water);outline-offset:2px;border-radius:4px}
+.pick option{background:var(--panel);color:var(--ink)}
+.pick .caret{position:absolute;right:0;pointer-events:none;color:var(--ink-2);font-size:.8em}
+html.screen .pick .caret{display:none}
+html.screen .pick select{pointer-events:none;padding-right:0}
+.esk-only{color:var(--warn);margin:-2px 0 6px}
 .river-now{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:8px}
 .big{font-family:var(--display);font-weight:700;font-size:4.2rem;line-height:.85;color:var(--water)}
 .big small{font-size:.45em;color:var(--ink-2);font-weight:600;margin-left:2px}
@@ -243,7 +251,14 @@ html.screen #summit .tbl-wrap{flex:1;min-height:0;overflow:hidden}
     <div class="warnings" id="warnings"><span class="dot"></span><div><b>Flood warnings</b> <span class="sub">Checking…</span></div></div>
 
     <article class="panel grow" id="river">
-      <div class="ph"><h2>River Esk at Cropple How</h2><span class="upd" id="river-upd"></span></div>
+      <div class="ph"><h2 class="pick"><select id="river-pick" aria-label="Choose a river gauge">
+        <option value="5037">River Esk at Cropple How</option>
+        <option value="5182">River Irt at Galesyke</option>
+        <option value="5142">River Duddon at Ulpha</option>
+        <option value="5044">River Duddon at Duddon Hall</option>
+        <option value="5027">River Calder at Calder Hall</option>
+        <option value="5014">River Ehen at Bleach Green</option>
+      </select><span class="caret" aria-hidden="true">▾</span></h2><span class="upd" id="river-upd"></span></div>
       <div class="river-now">
         <div class="big num" id="river-level">–<small>m</small></div>
         <div class="chips" id="river-chips"></div>
@@ -259,6 +274,7 @@ html.screen #summit .tbl-wrap{flex:1;min-height:0;overflow:hidden}
 
     <article class="panel" id="predict">
       <div class="ph"><h2>Predicted river level</h2><span class="upd" id="predict-upd"></span></div>
+      <p class="note esk-only" id="predict-esk" hidden>This forecast is for the Esk only, not the river picked above.</p>
       <div id="predict-body">
         <div class="pending">
           <div class="ico" aria-hidden="true">≈</div>
@@ -320,7 +336,8 @@ html.screen #summit .tbl-wrap{flex:1;min-height:0;overflow:hidden}
 "use strict";
 const TZ="Europe/London";
 const EA="https://environment.data.gov.uk/flood-monitoring";
-const RLOI="5037";
+const RLOI_DEFAULT="5037";   // Cropple How. Every page load starts here.
+let RLOI=RLOI_DEFAULT;
 const VALLEY={lat:54.3995,lon:-3.2880,elev:60,name:"Eskdale Green"};
 const SUMMIT={lat:54.4542,lon:-3.2116,elev:978,name:"Scafell Pike"};
 const REFRESH_MIN=10;
@@ -402,8 +419,8 @@ async function getJSON(url,ms=15000){
   finally{clearTimeout(to);}
 }
 const https=u=>String(u).replace(/^http:/,"https:");
-async function loadRiver(){
-  const st=(await getJSON(`${EA}/id/stations?RLOIid=${RLOI}`)).items[0];
+async function loadRiver(rloi=RLOI){
+  const st=(await getJSON(`${EA}/id/stations?RLOIid=${rloi}`)).items[0];
   const ref=st.stationReference;
   let scale={};
   try{scale=(await getJSON(https(st.stageScale||`${EA}/id/stations/${ref}/stageScale`))).items||{};}catch(e){}
@@ -411,11 +428,13 @@ async function loadRiver(){
   // The EA readings service can take 10-20 seconds to answer, so give it longer and try twice.
   const rurl=`${EA}/id/stations/${ref}/readings?parameter=level&_sorted&_limit=1000&since=${since}`;
   let rj; try{ rj=await getJSON(rurl,45000); }catch(e){ rj=await getJSON(rurl,45000); }
-  const rd=rj.items||[];
+  let rd=rj.items||[];
+  // Some gauges also report a downstream level; keep only the main river level.
+  if(rd.some(i=>/-level-stage-/.test(i.measure||""))) rd=rd.filter(i=>/-level-stage-/.test(i.measure||""));
   const readings=rd.filter(i=>typeof i.value==="number").map(i=>({t:new Date(i.dateTime),v:i.value})).sort((a,b)=>a.t-b.t);
   if(!readings.length) throw new Error("no readings");
-  const base=SNAP?SNAP.station:{};
-  return {src:"live",at:new Date(),readings,station:{
+  const base=SNAP&&rloi===RLOI_DEFAULT?SNAP.station:{};
+  return {src:"live",at:new Date(),rloi,readings,station:{
     label:st.label||base.label,river:st.riverName||base.river,ref,lat:st.lat,long:st.long,
     typicalLow:scale.typicalRangeLow??base.typicalLow, typicalHigh:scale.typicalRangeHigh??base.typicalHigh,
     highestRecent:scale.highestRecent||base.highestRecent, maxOnRecord:scale.maxOnRecord||base.maxOnRecord}};
@@ -470,16 +489,19 @@ async function loadPredict(){
 }
 
 async function loadAll(){
+  const want=RLOI;
   const tasks={
-    river:loadRiver(), floods:loadFloods(), valley:loadWx(VALLEY), summit:loadWx(SUMMIT), tides:loadTides(), predict:loadPredict()
+    river:loadRiver(want), floods:loadFloods(), valley:loadWx(VALLEY), summit:loadWx(SUMMIT), tides:loadTides(), predict:loadPredict()
   };
   const keys=Object.keys(tasks);
   const res=await Promise.allSettled(Object.values(tasks));
   res.forEach((r,i)=>{
     const k=keys[i];
+    if(k==="river"&&want!==RLOI) return;   // the river was changed while this was loading
     if(r.status==="fulfilled") S[k]=r.value;
     else if(k==="tides"||k==="predict"){ if(!S[k]||S[k].src!=="live") S[k]={src:"error",at:new Date(),code:"network"}; }
-    else if(!S[k]||S[k].src!=="live"){
+    else if(k==="river"&&RLOI!==RLOI_DEFAULT){ if(!S[k]||S[k].src!=="live"||S[k].rloi!==RLOI) S[k]={src:"error",at:new Date(),rloi:RLOI}; }
+    else if(!S[k]||S[k].src!=="live"||(k==="river"&&S[k].rloi&&S[k].rloi!==RLOI)){
       if(SNAP){
         if(k==="river") S[k]=snapRiver();
         else if(k==="floods") S[k]={src:"snapshot",at:new Date(SNAP.fetchedAt),items:SNAP.floods};
@@ -574,7 +596,14 @@ function riverTrend(rs){
 
 function renderRiver(){
   const R=S.river; if(!R) return;
-  if(R.src==="error"){$("river-level").innerHTML="–";$("river-upd").textContent="Not available";return;}
+  $("river-pick").value=R.rloi||RLOI;
+  $("predict-esk").hidden=RLOI===RLOI_DEFAULT;
+  if(R.src==="loading"||R.src==="error"){
+    $("river-level").innerHTML="–<small>m</small>";
+    $("river-upd").textContent=R.src==="loading"?"Loading…":"Not available";
+    $("river-chips").innerHTML=""; $("river-facts").innerHTML=""; $("river-chart").innerHTML=""; riverArgs=null;
+    $("gauge-mark").style.left="0%"; $("gauge-band").style.display="none"; $("gauge-scale").innerHTML="";
+    return;}
   const rs=R.readings, st=R.station, last=rs[rs.length-1];
   $("river-level").innerHTML=`${last.v.toFixed(2)}<small>m</small>`;
   const [sc,sl]=riverState(last.v,st), [tc,tl,td]=riverTrend(rs);
@@ -585,9 +614,11 @@ function renderRiver(){
 
   const top=Math.max(2.5,(st.maxOnRecord?.value||0)+0.15,Math.max(...rs.map(r=>r.v))+0.1);
   const pct=v=>Math.max(0,Math.min(100,v/top*100));
-  $("gauge-band").style.left=pct(st.typicalLow)+"%"; $("gauge-band").style.width=(pct(st.typicalHigh)-pct(st.typicalLow))+"%";
+  const hasRange=st.typicalLow!=null&&st.typicalHigh!=null;
+  $("gauge-band").style.display=hasRange?"":"none";
+  if(hasRange){$("gauge-band").style.left=pct(st.typicalLow)+"%"; $("gauge-band").style.width=(pct(st.typicalHigh)-pct(st.typicalLow))+"%";}
   $("gauge-mark").style.left=pct(last.v)+"%";
-  $("gauge-scale").innerHTML=`<span>0 m</span><span>Normal ${st.typicalLow}–${st.typicalHigh} m</span><span>${top.toFixed(1)} m</span>`;
+  $("gauge-scale").innerHTML=`<span>0 m</span><span>${hasRange?`Normal ${st.typicalLow}–${st.typicalHigh} m`:"No normal range given"}</span><span>${top.toFixed(1)} m</span>`;
 
   drawRiverChart(rs,st,top);
   const fmtRec=o=>o?`${o.value.toFixed(2)} m`:"–";
@@ -595,9 +626,18 @@ function renderRiver(){
   const peak=rs.reduce((a,b)=>b.v>a.v?b:a);
   $("river-facts").innerHTML=`
     <div><b>${peak.v.toFixed(2)} m</b>5-day peak, ${fDay.format(peak.t)} ${fTime.format(peak.t)}</div>
-    <div><b>${st.typicalHigh} m</b>Top of normal. Low-lying land can flood above this</div>
+    ${st.typicalHigh!=null?`<div><b>${st.typicalHigh} m</b>Top of normal. Low-lying land can flood above this</div>`:""}
     <div><b>${fmtRec(st.maxOnRecord)}</b>Highest on record, ${recDate(st.maxOnRecord)}</div>`;
 }
+
+// Picking another gauge. Each page load starts on Cropple How; the choice is not saved.
+$("river-pick").addEventListener("change",async e=>{
+  const want=e.target.value; RLOI=want;
+  S.river={src:"loading",rloi:want}; renderRiver();
+  let r; try{ r=await loadRiver(want); }catch(err){ r={src:"error",at:new Date(),rloi:want}; }
+  if(RLOI!==want) return;       // picked something else in the meantime
+  S.river=r; renderRiver(); renderStatus();
+});
 
 // Other panels in the column can change height after the river is drawn (e.g. the forecast
 // arriving, or a flood banner), so redraw the river chart whenever its box changes size.
@@ -615,9 +655,11 @@ function drawRiverChart(rs,st,top){
   const x=t=>L+(t-t0)/(t1-t0||1)*w, y=v=>T+h-(v/top)*h;
   let g="";
   for(let v=0;v<=top+1e-9;v+=0.5){g+=`<line x1="${L}" x2="${W-Rr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${L-6}" y="${y(v)+3}" text-anchor="end">${v.toFixed(1)}</text>`;}
+  if(st.typicalLow!=null&&st.typicalHigh!=null){
   g+=`<rect x="${L}" width="${w}" y="${y(st.typicalHigh)}" height="${y(st.typicalLow)-y(st.typicalHigh)}" fill="var(--band)"/>`;
   g+=`<line x1="${L}" x2="${W-Rr}" y1="${y(st.typicalHigh)}" y2="${y(st.typicalHigh)}" stroke="var(--ok)" stroke-dasharray="4 4" stroke-width="1"/>`;
   g+=`<text x="${W-Rr-4}" y="${y(st.typicalHigh)-4}" text-anchor="end" style="fill:var(--ok)">Top of normal ${st.typicalHigh} m</text>`;
+  }
   if(st.maxOnRecord&&st.maxOnRecord.value<top){g+=`<line x1="${L}" x2="${W-Rr}" y1="${y(st.maxOnRecord.value)}" y2="${y(st.maxOnRecord.value)}" stroke="var(--alert)" stroke-dasharray="2 5" stroke-width="1"/><text x="${W-Rr-4}" y="${y(st.maxOnRecord.value)-4}" text-anchor="end" style="fill:var(--alert)">Record ${st.maxOnRecord.value.toFixed(2)} m</text>`;}
   // day ticks at local midnight
   const seen=new Set();
