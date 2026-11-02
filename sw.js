@@ -1,6 +1,6 @@
 // Eskdale Conditions service worker.
 // Bump VERSION whenever you publish a change; phones pick it up on their next visit.
-const VERSION="eskdale-v10";
+const VERSION="eskdale-v11";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {
